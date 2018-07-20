@@ -34,7 +34,7 @@ const sendTwilioSms = (phone, msg) => {
 		};
 
 		return new Promise((resolve, reject) => {
-			var req = https.request(params, res => {
+			const req = https.request(params, res => {
 				// Grab the status of the sent request
 				const status = res.statusCode;
 

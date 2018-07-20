@@ -186,11 +186,14 @@ const deleteCheck = async ctx => {
 			// remove the deleted check from user checks
 			const checkData = await checkService.read(id);
 
-			if (ctx.user.checks.includes(id)) {
-        const indexToDelete = ctx.user.checks.indexOf(id);
-        // remove the check from users checks
-        console.log(ctx.user.checks);
+			const { checks } = ctx.user;
+
+			if (checks.includes(id)) {
+				// remove the check from users checks
+				const updatedChecks = checks.filter(checkId => checkId !== id);
+
 				// update the users checks
+				ctx.user.checks = updatedChecks;
 				await userService.update(ctx.user.phone, ctx.user);
 			}
 
