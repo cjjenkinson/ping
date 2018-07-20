@@ -1,17 +1,80 @@
-/*
- * Primary file for the API
- *
- */
-
-// Dependencies
 const http = require('http');
 const https = require('https');
 const url = require('url');
-const StringDecoder = require('string_decoder').StringDecoder;
-const config = require('./lib/config');
 const fs = require('fs');
-const handlers = require('./lib/handlers');
-const helpers = require('./lib/helpers');
+const config = require('./config');
+const router = require('./lib/router');
+
+const StringDecoder = require('string_decoder').StringDecoder;
+const decoder = new StringDecoder('utf-8');
+
+const { sendTwilioSms } = require('./services/twilio');
+const sendMessage = async () => {
+	try {
+		const res = await sendTwilioSms('07950934843', 'Alert! test');
+		console.log('RESPONSE FROM TWILIO', res);
+	} catch (err) {
+		console.log('ERROR RESPONSE FROM TWILIO', err);
+	}
+};
+sendMessage();
+
+// Server logic
+const unifiedServer = (req, res) => {
+  // instantiate the context
+  const ctx = {};
+
+	const start = process.hrtime();
+
+	// get the URL and parse it
+	const { pathname, query: queryStringObject } = url.parse(req.url, true);
+
+	// get the path
+	const path = pathname.replace(/^\/+|\/+$/g, '');
+
+	// get the HTTP method
+	const method = req.method.toLowerCase();
+
+	// get the headers as an object
+	const headers = req.headers;
+
+	// get the payload, if any
+	let buffer = '';
+
+	req.on('data', data => {
+		buffer += decoder.write(data);
+	});
+
+	req.on('end', async () => {
+		buffer += decoder.end();
+
+		const isValidRequest = router.isValidRequest(path, method);
+
+		const controller = isValidRequest ? router[path] : false;
+
+		ctx.request = {
+			headers,
+			method,
+			queryStringObject,
+			body: buffer ? JSON.parse(buffer) : {},
+		};
+
+		const { response } = controller
+			? await controller[method](ctx)
+			: {
+					statusCode: router.isValidPath(path) ? 405 : 404,
+					message: router.isValidPath(path) ? 'Method not allowed' : 'Not found',
+			  };
+
+		res.setHeader('Content-Type', 'application/json');
+		res.writeHead(response.statusCode);
+
+		// log the response
+		console.log(method.toUpperCase(), path, response.statusCode, `${process.hrtime(start)[1] / 100000} ms`);
+
+		res.end(JSON.stringify(response));
+	});
+};
 
 // instantiate the HTTP server
 const httpServer = http.createServer((req, res) => {
@@ -37,80 +100,3 @@ const httpsServer = https.createServer(httpsServerOptions, (req, res) => {
 httpsServer.listen(config.httpsPort, () => {
 	console.log(`HTTPs Server is listening on port ${config.httpsPort}`);
 });
-
-// Server logic
-const unifiedServer = (req, res) => {
-	// get the URL and parse it
-	const parsedUrl = url.parse(req.url, true);
-
-	// get the path
-	const path = parsedUrl.pathname;
-	const trimmedPath = path.replace(/^\/+|\/+$/g, '');
-
-	// get the query string as an object
-	const queryStringObject = parsedUrl.query;
-
-	// get the HTTP method
-	const method = req.method.toLowerCase();
-
-	// get the headers as an object
-	const headers = req.headers;
-
-	// get the payload, if any
-	const decoder = new StringDecoder('utf-8');
-	let buffer = '';
-
-	req.on('data', data => {
-		buffer += decoder.write(data);
-	});
-
-	req.on('end', () => {
-		buffer += decoder.end();
-
-		// Route request to handler
-		const handler = typeof router[trimmedPath] !== 'undefined' ? router[trimmedPath] : handlers.notFound;
-
-		const parsedBuffer = helpers.parseJSONtoObject(buffer);
-
-		const data = {
-			path: trimmedPath,
-			query: queryStringObject,
-			method: method,
-			headers: headers,
-			payload: parsedBuffer,
-    };
-
-		handler(data)
-			.then(response => {
-				let { statusCode, payload } = response;
-
-				// use the status code called back by the handler or default to 200
-				statusCode = typeof statusCode == 'number' ? statusCode : 200;
-
-				// use the payload called back by the handler or default to empty object
-				payload = typeof payload == 'object' ? payload : {};
-
-				// convert the payload to a string
-				const payloadString = JSON.stringify(payload);
-
-				// return the response
-				res.setHeader('Content-Type', 'application/json');
-				res.writeHead(statusCode);
-				res.end(payloadString);
-
-				// log the path requested
-				console.log('Returning response: ' + statusCode, payloadString);
-			})
-			.catch(err => {
-				console.error(err);
-    	});
-
-	});
-};
-
-// Define a request router
-const router = {
-	ping: handlers.ping,
-  users: handlers.users,
-  tokens: handlers.tokens
-};
