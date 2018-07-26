@@ -12,7 +12,6 @@ app.init = () => {
 	// Start the workers
 	const monitor = MonitoringWorker();
 
-	monitor.interval = 1000 * 60;
 	monitor.start();
 };
 
